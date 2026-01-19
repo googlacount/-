@@ -1,20 +1,30 @@
 
 import { Choice, DifficultyLevel, Question, QuestionType, EducationStage, Semester } from '../types';
 import { CHOICE_COLORS, TRANSLATIONS } from '../constants';
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 
 interface QuizEditorProps {
   questions: Question[];
   onUpdate: (questions: Question[]) => void;
   onExportToBank?: (question: Question) => void;
+  onBulkExportToBank?: (questions: Question[]) => void;
   language: 'en' | 'ar';
   bankQuestionIds?: string[];
 }
 
-const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportToBank, language, bankQuestionIds = [] }) => {
+const QuizEditor: React.FC<QuizEditorProps> = ({ 
+  questions, 
+  onUpdate, 
+  onExportToBank, 
+  onBulkExportToBank,
+  language, 
+  bankQuestionIds = [] 
+}) => {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isListening, setIsListening] = useState<string | null>(null);
   const [isChoiceListening, setIsChoiceListening] = useState<{ qId: string, cId: string, field: 'text' | 'matchText' } | null>(null);
+  const bulkImageInputRef = useRef<HTMLInputElement>(null);
   const t = TRANSLATIONS[language];
 
   const getDefaultChoices = (type: QuestionType): Choice[] => {
@@ -87,6 +97,9 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportTo
 
   const removeQuestion = (id: string) => {
     onUpdate(questions.filter(q => q.id !== id));
+    const newSelected = new Set(selectedIds);
+    newSelected.delete(id);
+    setSelectedIds(newSelected);
   };
 
   const handleImageUpload = (id: string, file: File | null, choiceId?: string) => {
@@ -109,8 +122,46 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportTo
     reader.readAsDataURL(file);
   };
 
+  const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    // Explicitly cast to File[] to avoid 'unknown' type inference in some environments
+    const files = Array.from(e.target.files) as File[];
+    const newQuestions: Question[] = [];
+
+    // Process files sequentially to maintain order, or Promise.all for speed. 
+    // Promise.all is better here.
+    const promises = files.map(file => {
+      return new Promise<Question>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64 = event.target?.result as string;
+          resolve({
+            id: crypto.randomUUID(),
+            type: QuestionType.MULTIPLE_CHOICE,
+            difficulty: DifficultyLevel.MEDIUM,
+            category: language === 'ar' ? 'عام' : 'General',
+            text: language === 'ar' ? 'سؤال جديد' : 'New Question',
+            points: 1,
+            image: base64,
+            choices: getDefaultChoices(QuestionType.MULTIPLE_CHOICE),
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    const generatedQuestions = await Promise.all(promises);
+    onUpdate([...questions, ...generatedQuestions]);
+    
+    // Clear the input
+    if (bulkImageInputRef.current) {
+      bulkImageInputRef.current.value = '';
+    }
+  };
+
   const startVoiceInput = (id: string, choiceId?: string, field: 'text' | 'matchText' = 'text') => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition;
     if (!SpeechRecognition) {
       alert(language === 'ar' ? 'متصفحك لا يدعم التعرف على الصوت' : 'Your browser does not support Speech Recognition');
       return;
@@ -161,29 +212,107 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportTo
     recognition.start();
   };
 
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(questions.map(q => q.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkExport = () => {
+    if (selectedIds.size === 0) return;
+    const selectedQuestions = questions.filter(q => selectedIds.has(q.id));
+    onBulkExportToBank?.(selectedQuestions);
+    setSelectedIds(new Set());
+  };
+
   return (
     <div className="space-y-6 pb-20">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-slate-900">{t.questions} ({questions.length})</h2>
-        <button
-          onClick={() => addQuestion()}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-md transition-all active:scale-95"
-        >
-          <i className="fas fa-plus"></i> {t.addQuestion}
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold text-slate-900">{t.questions} ({questions.length})</h2>
+          {questions.length > 0 && (
+            <div className="flex items-center gap-2">
+               <button 
+                onClick={selectedIds.size === questions.length ? deselectAll : selectAll}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100"
+              >
+                {selectedIds.size === questions.length ? t.deselectAll : t.selectAll}
+              </button>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleBulkExport}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg transition-all animate-bounceIn"
+            >
+              <i className="fas fa-database"></i> {t.addSelectedToBank} ({selectedIds.size})
+            </button>
+          )}
+
+          {/* Bulk Image Upload Button */}
+          <input 
+            type="file" 
+            multiple 
+            accept="image/*" 
+            className="hidden" 
+            ref={bulkImageInputRef}
+            onChange={handleBulkImageUpload}
+          />
+          <button
+            onClick={() => bulkImageInputRef.current?.click()}
+            className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-md transition-all active:scale-95"
+            title={language === 'ar' ? 'إضافة أسئلة من صور متعددة' : 'Add questions from multiple images'}
+          >
+            <i className="fas fa-images"></i> {language === 'ar' ? 'صور' : 'Images'}
+          </button>
+
+          <button
+            onClick={() => addQuestion()}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-md transition-all active:scale-95"
+          >
+            <i className="fas fa-plus"></i> {t.addQuestion}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4">
         {questions.map((q, idx) => {
           const isInBank = bankQuestionIds.includes(q.id);
+          const isSelected = selectedIds.has(q.id);
           
           return (
             <React.Fragment key={q.id}>
-              <div className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 ${editingId === q.id ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-md'}`}>
+              <div className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all duration-300 ${editingId === q.id ? 'ring-2 ring-indigo-500 shadow-xl' : isSelected ? 'ring-2 ring-indigo-400 bg-indigo-50/20' : 'hover:shadow-md'}`}>
                 <div className="p-4 flex items-center gap-4 cursor-pointer hover:bg-slate-50" onClick={() => setEditingId(editingId === q.id ? null : q.id)}>
-                  <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm shrink-0">
+                  
+                  {/* Multi-select Checkbox */}
+                  <div 
+                    onClick={(e) => toggleSelect(q.id, e)} 
+                    className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shrink-0 ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-transparent hover:border-indigo-400'}`}
+                  >
+                    <i className="fas fa-check text-[10px]"></i>
+                  </div>
+
+                  <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-sm shrink-0">
                     {idx + 1}
                   </div>
+
                   <div className="flex-1">
                     <div className="font-semibold text-slate-900 line-clamp-1">{q.text || (language === 'ar' ? 'سؤال جديد...' : 'New question...')}</div>
                     <div className="text-[10px] text-slate-500 flex gap-2 mt-1">
@@ -195,6 +324,7 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportTo
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                      {q.image && <i className="fas fa-image text-slate-400 mr-2" title="Has image"></i>}
                       <button 
                         onClick={(e) => { e.stopPropagation(); onExportToBank?.(q); }} 
                         title={t.export} 
@@ -255,24 +385,36 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportTo
                             </select>
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{t.points}</label>
-                          <div className="flex items-center gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{t.category}</label>
                             <input
-                              type="range"
-                              min="0"
-                              max="10"
-                              step="0.5"
-                              className="flex-1 accent-indigo-600"
-                              value={q.points}
-                              onChange={(e) => updateQuestion(q.id, { points: parseFloat(e.target.value) || 0 })}
+                              type="text"
+                              className="w-full border rounded-lg p-2 text-xs text-black outline-none bg-white font-bold h-10 shadow-sm"
+                              value={q.category}
+                              onChange={(e) => updateQuestion(q.id, { category: e.target.value })}
+                              placeholder={language === 'ar' ? 'مثلاً: النحو' : 'e.g. Grammar'}
                             />
-                            <input
-                              type="number"
-                              className="w-16 border rounded-lg p-2 text-center text-sm font-black bg-white shadow-sm"
-                              value={q.points}
-                              onChange={(e) => updateQuestion(q.id, { points: parseFloat(e.target.value) || 0 })}
-                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">{t.points}</label>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min="0"
+                                max="10"
+                                step="0.5"
+                                className="flex-1 accent-indigo-600"
+                                value={q.points}
+                                onChange={(e) => updateQuestion(q.id, { points: parseFloat(e.target.value) || 0 })}
+                              />
+                              <input
+                                type="number"
+                                className="w-16 border rounded-lg p-2 text-center text-sm font-black bg-white shadow-sm"
+                                value={q.points}
+                                onChange={(e) => updateQuestion(q.id, { points: parseFloat(e.target.value) || 0 })}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -375,15 +517,27 @@ const QuizEditor: React.FC<QuizEditorProps> = ({ questions, onUpdate, onExportTo
       </div>
 
       {/* Large add button at the very bottom */}
-      <button
-        onClick={() => addQuestion()}
-        className="w-full py-8 border-2 border-dashed border-slate-300 rounded-3xl text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/30 transition-all flex flex-col items-center gap-3 mt-4 group"
-      >
-        <div className="w-14 h-14 rounded-full bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">
-          <i className="fas fa-plus text-2xl"></i>
-        </div>
-        <span className="font-bold text-sm">{t.addQuestion}</span>
-      </button>
+      <div className="grid grid-cols-2 gap-4 mt-4">
+        <button
+          onClick={() => bulkImageInputRef.current?.click()}
+          className="w-full py-8 border-2 border-dashed border-sky-300 bg-sky-50 rounded-3xl text-sky-500 hover:border-sky-500 hover:text-sky-600 hover:bg-sky-100 transition-all flex flex-col items-center gap-3 group"
+        >
+          <div className="w-14 h-14 rounded-full bg-white group-hover:bg-sky-200 flex items-center justify-center transition-colors">
+            <i className="fas fa-images text-2xl"></i>
+          </div>
+          <span className="font-bold text-sm">{language === 'ar' ? 'إضافة صور متعددة' : 'Add Multiple Images'}</span>
+        </button>
+
+        <button
+          onClick={() => addQuestion()}
+          className="w-full py-8 border-2 border-dashed border-slate-300 rounded-3xl text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/30 transition-all flex flex-col items-center gap-3 group"
+        >
+          <div className="w-14 h-14 rounded-full bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">
+            <i className="fas fa-plus text-2xl"></i>
+          </div>
+          <span className="font-bold text-sm">{t.addQuestion}</span>
+        </button>
+      </div>
     </div>
   );
 };

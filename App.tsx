@@ -89,7 +89,6 @@ const App: React.FC = () => {
   };
 
   const exportToBank = (q: Question) => {
-    // Inject current classification if missing
     const bankQ = {
       ...q,
       stage: q.stage || settings.defaultStage,
@@ -98,19 +97,42 @@ const App: React.FC = () => {
       semester: q.semester || settings.defaultSemester
     };
     
-    // Check if already in bank to avoid simple duplication by ID
     const exists = bank.some(bq => bq.id === q.id);
     if (exists) {
       setBank(bank.map(bq => bq.id === q.id ? bankQ : bq));
     } else {
       setBank([bankQ, ...bank]);
     }
-    
+  };
+
+  const handleSingleExport = (q: Question) => {
+    exportToBank(q);
     alert(lang === 'ar' ? 'تمت الإضافة لبنك الأسئلة!' : 'Added to Bank!');
   };
 
+  const handleBulkExportToBank = (selectedQuestions: Question[]) => {
+    const newBankEntries = [...bank];
+    selectedQuestions.forEach(q => {
+      const bankQ = {
+        ...q,
+        stage: q.stage || settings.defaultStage,
+        grade: q.grade || settings.defaultGrade,
+        subject: q.subject || settings.subject,
+        semester: q.semester || settings.defaultSemester
+      };
+      
+      const index = newBankEntries.findIndex(bq => bq.id === q.id);
+      if (index !== -1) {
+        newBankEntries[index] = bankQ;
+      } else {
+        newBankEntries.push(bankQ);
+      }
+    });
+    setBank(newBankEntries);
+    alert(lang === 'ar' ? `تمت إضافة ${selectedQuestions.length} سؤال لبنك الأسئلة!` : `Added ${selectedQuestions.length} questions to Bank!`);
+  };
+
   const importFromBank = (q: Question) => {
-    // Generate new UUID for the imported question so it's treated as a fresh instance in the editor
     setQuestions([...questions, { ...q, id: crypto.randomUUID() }]);
     alert(lang === 'ar' ? 'تم الاستيراد بنجاح!' : 'Imported successfully!');
   };
@@ -165,7 +187,8 @@ const App: React.FC = () => {
             <QuizEditor 
               questions={questions} 
               onUpdate={setQuestions} 
-              onExportToBank={exportToBank} 
+              onExportToBank={handleSingleExport} 
+              onBulkExportToBank={handleBulkExportToBank}
               language={lang} 
               bankQuestionIds={bank.map(q => q.id)}
             />

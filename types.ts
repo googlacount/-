@@ -44,7 +44,6 @@ export interface Question {
   correctAnswer?: string; // For fill in blank or essay (optional)
   points: number;
   bgColor?: string; // Custom bg color for this question
-  // Classification fields for the bank
   stage?: EducationStage;
   grade?: string;
   subject?: string;
@@ -54,10 +53,13 @@ export interface Question {
 
 export interface QuizAppearance {
   backgroundColor: string;
+  backgroundImage?: string; // New: Background Image
   answerBoxBg: string;
   answerTextColor: string;
   selectedColor: string;
   selectedTextColor: string;
+  clickEffect: 'none' | 'pulse' | 'shake' | 'glow' | 'scale'; // New: Click Effect
+  transitionEffect: 'none' | 'fade' | 'slide' | 'zoom' | 'flip'; // New: Transition Effect
   fontSizeChoices: number;
   spacingChoices: number;
   borderStyle: 'none' | 'solid' | 'dashed' | 'double';
@@ -65,12 +67,23 @@ export interface QuizAppearance {
 }
 
 export interface CloudConfig {
-  firebaseConfig?: string; // JSON string or URL
-  cloudUrl?: string; // API endpoint for results/banks
-  folderName?: string; // Folder name for storage
+  firebaseConfig?: string;
+  cloudUrl?: string;
+  folderName?: string;
   syncGrades: boolean;
   syncTests: boolean;
   syncBank: boolean;
+}
+
+export interface BrandingConfig {
+  type: 'none' | 'text' | 'image' | 'both';
+  text: string;
+  image?: string;
+  position: 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+  textSize: number; 
+  imageSize: number;
+  color: string;
+  fontFamily: string;
 }
 
 export interface QuizSettings {
@@ -87,19 +100,20 @@ export interface QuizSettings {
   skipNameEntry: boolean;
   welcomeMessage: string;
   messageDuration: number;
-  maxAttempts: number; // 0 for unlimited, 1 for single, N for specific
+  maxAttempts: number;
   appearance: QuizAppearance;
   cloudConfig: CloudConfig;
+  brandingConfig: BrandingConfig;
   schedulingEnabled: boolean;
-  startTime?: string;
-  endTime?: string;
+  startTime?: string; // ISO String
+  endTime?: string;   // ISO String
+  schedulingMessage?: string;
   preventSplitScreen: boolean;
   preventScreenshot: boolean;
   offlineMode: boolean;
   designerName?: string;
   designerLogo?: string;
   copyrightPosition: 'left' | 'center' | 'right';
-  // Default classification for new questions
   defaultStage?: EducationStage;
   defaultGrade?: string;
   defaultSemester?: Semester;
